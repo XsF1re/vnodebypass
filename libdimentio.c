@@ -93,7 +93,8 @@ typedef char io_string_t[512];
 typedef mach_port_t io_object_t;
 typedef uint32_t IOOptionBits, ipc_entry_num_t;
 typedef io_object_t io_service_t, io_connect_t, io_registry_entry_t;
-typedef int (*krw_0_kread_func_t)(kaddr_t, void *, size_t), (*krw_0_kwrite_func_t)(const void *, kaddr_t, size_t);
+typedef kern_return_t (*kernrw_0_kbase_func_t)(kaddr_t *), (*kernrw_0_kread_func_t)(kaddr_t, void *, size_t), (*kernrw_0_kwrite_func_t)(kaddr_t, const void *, size_t), (*kernrw_0_read32_func_t)(uint64_t, uint32_t*), (*kernrw_0_read64_func_t)(uint64_t addr, uint64_t*), (*kernrw_0_write32_func_t)(uint64_t, uint32_t), (*kernrw_0_write64_func_t)(uint64_t, uint64_t);
+typedef int (*krw_0_kbase_func_t)(kaddr_t *), (*krw_0_kread_func_t)(kaddr_t, void *, size_t), (*krw_0_kwrite_func_t)(const void *, kaddr_t, size_t), (*kernrw_0_req_kernrw_func_t)(void);
 
 typedef struct {
 	struct section_64 s64;
@@ -152,13 +153,21 @@ kern_return_t
 mach_vm_region(vm_map_t, mach_vm_address_t *, mach_vm_size_t *, vm_region_flavor_t, vm_region_info_t, mach_msg_type_number_t *, mach_port_t *);
 
 extern const mach_port_t kIOMasterPortDefault;
-static void *krw_0;
+static void *krw_0, *kernrw_0;
 
 static kread_func_t kread_buf;
 task_t tfp0 = TASK_NULL;
 static kwrite_func_t kwrite_buf;
+static krw_0_kread_func_t krw_0_kread;
+static krw_0_kwrite_func_t krw_0_kwrite;
 kaddr_t kbase, kslide, this_proc, our_task;
 static kaddr_t kernproc;
+static kernrw_0_kread_func_t kernrw_0_kread;
+static kernrw_0_kwrite_func_t kernrw_0_kwrite;
+static kernrw_0_read32_func_t kernrw_0_read32;
+static kernrw_0_read64_func_t kernrw_0_read64;
+static kernrw_0_write32_func_t kernrw_0_write32;
+static kernrw_0_write64_func_t kernrw_0_write64;
 static size_t proc_task_off, proc_p_pid_off, task_itk_space_off, io_dt_nvram_of_dict_off;
 
 static uint32_t
@@ -296,6 +305,16 @@ kwrite_buf_krw_0(kaddr_t addr, const void *buf, mach_msg_type_number_t sz) {
     static krw_0_kwrite_func_t krw_0_kwrite;
 
     return (krw_0_kwrite != NULL || (krw_0_kwrite = (krw_0_kwrite_func_t)dlsym(krw_0, "kwrite")) != NULL) && krw_0_kwrite(buf, addr, sz) == 0 ? KERN_SUCCESS : KERN_FAILURE;
+}
+
+static kern_return_t
+kread_buf_kernrw_0(kaddr_t addr, void *buf, size_t sz) {
+	return kernrw_0_kread(addr, buf, sz);
+}
+
+static kern_return_t
+kwrite_buf_kernrw_0(kaddr_t addr, const void *buf, size_t sz) {
+	return kernrw_0_kwrite(addr, buf, sz);
 }
 
 kern_return_t
@@ -937,23 +956,45 @@ dimentio_term(void) {
 
 kern_return_t
 dimentio_init(kaddr_t _kslide, kread_func_t _kread_buf, kwrite_func_t _kwrite_buf) {
+	kernrw_0_req_kernrw_func_t kernrw_0_req;
 	kslide = _kslide;
 	if(_kread_buf != NULL && _kwrite_buf != NULL) {
 		kread_buf = _kread_buf;
 		kwrite_buf = _kwrite_buf;
-    } else if(init_tfp0() == KERN_SUCCESS) {
-        printf("tfp0: 0x%" PRIX32 "\n", tfp0);
-        kread_buf = _kread_buf != NULL ? _kread_buf : kread_buf_tfp0;
-        kwrite_buf = _kwrite_buf != NULL ? _kwrite_buf : kwrite_buf_tfp0;
-    } else if((krw_0 = dlopen("/usr/lib/libkrw.0.dylib", RTLD_LAZY)) != NULL) {
-        printf("libkrw!\n");
-        kread_buf = kread_buf_krw_0;
-        kwrite_buf = kwrite_buf_krw_0;
+	} else if(init_tfp0() == KERN_SUCCESS) {
+		printf("tfp0: 0x%" PRIX32 "\n", tfp0);
+		kread_buf = kread_buf_tfp0;
+		kwrite_buf = kwrite_buf_tfp0;
+	} else if((krw_0 = dlopen("/usr/lib/libkrw.0.dylib", RTLD_LAZY)) != NULL && (krw_0_kread = (krw_0_kread_func_t)dlsym(krw_0, "kread")) != NULL && (krw_0_kwrite = (krw_0_kwrite_func_t)dlsym(krw_0, "kwrite")) != NULL) {
+		kread_buf = kread_buf_krw_0;
+		kwrite_buf = kwrite_buf_krw_0;
+	} else if(
+		(kernrw_0 = dlopen("/usr/lib/libkernrw.0.dylib", RTLD_LAZY)) != NULL &&
+		(kernrw_0_req = (kernrw_0_req_kernrw_func_t)dlsym(kernrw_0, "requestKernRw")) != NULL &&
+		kernrw_0_req() == 0 &&
+		(kernrw_0_kread = (kernrw_0_kread_func_t)dlsym(kernrw_0, "kernRW_readbuf")) != NULL,
+		(kernrw_0_kwrite = (kernrw_0_kwrite_func_t)dlsym(kernrw_0, "kernRW_writebuf")) != NULL, 
+		(kernrw_0_read32 = (kernrw_0_read32_func_t)dlsym(kernrw_0, "kernRW_read32")) != NULL,
+		(kernrw_0_read64 = (kernrw_0_read64_func_t)dlsym(kernrw_0, "kernRW_read64")) != NULL,
+		(kernrw_0_write32 = (kernrw_0_write32_func_t)dlsym(kernrw_0, "kernRW_write32")) != NULL,
+		(kernrw_0_write64 = (kernrw_0_write64_func_t)dlsym(kernrw_0, "kernRW_write64")) != NULL
+	) {
+		kread_buf = kread_buf_kernrw_0;
+		kwrite_buf = kwrite_buf_kernrw_0;
 	}
-	if(setpriority(PRIO_PROCESS, 0, PRIO_MIN) != -1 && pfinder_init_offsets() == KERN_SUCCESS) {
-		return KERN_SUCCESS;
+	if(kread_buf != NULL && kwrite_buf != NULL && setpriority(PRIO_PROCESS, 0, PRIO_MIN) != -1) {
+		if(pfinder_init_offsets() == KERN_SUCCESS) {
+			return KERN_SUCCESS;
+		}
+		setpriority(PRIO_PROCESS, 0, 0);
 	}
-	dimentio_term();
+	if(tfp0 != TASK_NULL) {
+		mach_port_deallocate(mach_task_self(), tfp0);
+	} else if(krw_0 != NULL) {
+		dlclose(krw_0);
+	} else if(kernrw_0 != NULL) {
+		dlclose(kernrw_0);
+	}
 	return KERN_FAILURE;
 }
 
@@ -1025,23 +1066,39 @@ dimentio(uint64_t nonce, uint8_t entangled_nonce[CC_SHA384_DIGEST_LENGTH], bool 
 //read kernel
 uint32_t kernel_read32(uint64_t where) {
     uint32_t out;
-    kread_buf(where, &out, sizeof(uint32_t));
+	if (kernrw_0_read32 != NULL) {
+		kernrw_0_read32(where, &out);
+	} else {
+		kread_buf(where, &out, sizeof(uint32_t));
+	}
     return out;
 }
 
 uint64_t kernel_read64(uint64_t where) {
     uint64_t out;
-    kread_buf(where, &out, sizeof(uint64_t));
+    if (kernrw_0_read64 != NULL) {
+		kernrw_0_read64(where, &out);
+	} else {
+		kread_buf(where, &out, sizeof(uint32_t));
+	}
     return out;
 }
 
 //write kernel
 void kernel_write32(uint64_t where, uint32_t what) {
     uint32_t _what = what;
-    kwrite_buf(where, &_what, sizeof(uint32_t));
+	if (kernrw_0_write32 != NULL) {
+		kernrw_0_write32(where, _what);
+	} else {
+    	kwrite_buf(where, &_what, sizeof(uint32_t));
+	}
 }
 
 void kernel_write64(uint64_t where, uint64_t what) {
     uint64_t _what = what;
-    kwrite_buf(where, &_what, sizeof(uint64_t));
+    if (kernrw_0_write64 != NULL) {
+		kernrw_0_write64(where, _what);
+	} else {
+    	kwrite_buf(where, &_what, sizeof(uint64_t));
+	}
 }
