@@ -11,11 +11,13 @@ include $(THEOS)/makefiles/common.mk
 
 TOOL_NAME = vnodebypass
 
-vnodebypass_FILES = main.m vnode.m libdimentio.c kernel.m
+vnodebypass_FILES = main.m vnode.m kernel.m extras.c
 vnodebypass_CFLAGS = -fobjc-arc
+vnodebypass_LDFLAGS = -L.
 vnodebypass_CODESIGN_FLAGS = -Sent.plist
 vnodebypass_INSTALL_PATH = /usr/bin
 vnodebypass_FRAMEWORKS = IOKit
+vnodebypass_LIBRARIES = dimentio compression
 
 include $(THEOS_MAKE_PATH)/tool.mk
 
