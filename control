@@ -1,6 +1,6 @@
 Package: kr.xsf1re.vnodebypass
 Name: vnodebypass
-Version: 0.2.3
+Version: 0.2.5
 Architecture: iphoneos-arm
 Description: An expermental tool to hide jailbreak files for bypass detection.
 Maintainer: XsF1re
